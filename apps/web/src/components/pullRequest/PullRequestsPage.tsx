@@ -58,6 +58,7 @@ import {
   type PullRequestListPreferencePatch,
   writePullRequestListPreferences,
   normalizePullRequestGrouping,
+  storedPullRequestGrouping,
 } from "./pullRequestListPreferences";
 import { SavedViewsMenu } from "../SavedViewsMenu";
 import { PullRequestGroupMenu } from "./PullRequestGroupMenu";
@@ -276,7 +277,7 @@ export function PullRequestsPage() {
           involvement: next.involvement ?? previous.involvement,
           state: next.state ?? previous.state,
           ...(next.sort && next.sort !== "ready" ? { sort: next.sort } : {}),
-          ...(next.groupBy ? { groupBy: next.groupBy } : {}),
+          groupBy: storedPullRequestGrouping(next.groupBy),
           ...(next.repository ? { repository: next.repository } : {}),
           ...(next.number ? { number: next.number } : {}),
           ...(next.projectId ? { projectId: next.projectId } : {}),

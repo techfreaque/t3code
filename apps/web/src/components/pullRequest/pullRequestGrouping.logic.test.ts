@@ -6,7 +6,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  poolPullRequestGroups,
+  sortAndGroupPullRequests,
   regroupPullRequests,
   slicePullRequestGroups,
 } from "./pullRequestGrouping.logic";
@@ -52,7 +52,7 @@ const numbers = (entries: ReadonlyArray<PullRequestListEntry>) =>
   entries.map((item) => item.number);
 const keys = (groups: ReadonlyArray<{ readonly key: string }>) => groups.map((group) => group.key);
 
-describe("regroupPullRequests", () => {
+describe("grouping the pull request list", () => {
   it("restores global recency and search order when pooling involvement groups", () => {
     const groups: PullRequestGroup[] = [
       {
@@ -62,10 +62,25 @@ describe("regroupPullRequests", () => {
       },
       { key: "others", label: "Others", entries: [entry(2)] },
     ];
-    expect(numbers(poolPullRequestGroups(groups, "")[0]?.entries ?? [])).toEqual([2, 1]);
-    expect(numbers(poolPullRequestGroups(groups.toReversed(), "exact")[0]?.entries ?? [])).toEqual([
-      1, 2,
-    ]);
+    const options = {
+      groupBy: ["repository", "state", "draft"],
+      involvement: "all",
+      now: NOW,
+    } as const;
+    expect(
+      numbers(
+        sortAndGroupPullRequests(groups, { ...options, sort: "updated", text: "" })[0]?.entries ??
+          [],
+      ),
+    ).toEqual([2, 1]);
+    for (const sort of ["ready", "blocked", "updated"] as const) {
+      expect(
+        numbers(
+          sortAndGroupPullRequests(groups.toReversed(), { ...options, sort, text: "exact" })[0]
+            ?.entries ?? [],
+        ),
+      ).toEqual([1, 2]);
+    }
   });
   it("keeps the involvement groups as given", () => {
     const groups: PullRequestGroup[] = [
@@ -74,6 +89,47 @@ describe("regroupPullRequests", () => {
     ];
 
     expect(regroupPullRequests(groups, ["involvement"], NOW)).toEqual(groups);
+  });
+
+  it("ranks blocked rows by their involvement before splitting into nested groups", () => {
+    const groups: PullRequestGroup[] = [
+      {
+        key: "authored",
+        label: "Authored",
+        entries: [entry(1), entry(2, { mergeability: "conflicting" })],
+      },
+      {
+        key: "reviewRequested",
+        label: "Review requested",
+        entries: [entry(3, { state: "closed" }), entry(4)],
+      },
+      {
+        key: "others",
+        label: "Others",
+        entries: [entry(5), entry(6, { mergeability: "conflicting" })],
+      },
+    ];
+    const options = { sort: "blocked", text: "", involvement: "all", now: NOW } as const;
+    const defaultGroups = sortAndGroupPullRequests(groups, {
+      ...options,
+      groupBy: ["involvement"],
+    });
+    expect(keys(defaultGroups)).toEqual(["authored", "reviewRequested", "others"]);
+    expect(defaultGroups.map((group) => numbers(group.entries))).toEqual([
+      [2, 1],
+      [4, 3],
+      [5, 6],
+    ]);
+    const nested = sortAndGroupPullRequests(groups, {
+      ...options,
+      groupBy: ["repository", "host", "author"],
+    });
+    expect(numbers(nested[0]?.entries ?? [])).toEqual([2, 1, 4, 3, 5, 6]);
+    const authored = sortAndGroupPullRequests(
+      one([entry(1), entry(2, { mergeability: "conflicting" })]),
+      { ...options, involvement: "authored", groupBy: ["repository", "state"] },
+    );
+    expect(numbers(authored[0]?.entries ?? [])).toEqual([2, 1]);
   });
 
   it("pools everything into one unheaded group for no grouping", () => {
@@ -228,6 +284,7 @@ describe("regroupPullRequests", () => {
     ).toEqual([[2, 4], [1]]);
     expect(slicePullRequestGroups(grouped, 4)).toEqual(grouped);
     expect(slicePullRequestGroups(grouped, 0)).toEqual([]);
+    expect(slicePullRequestGroups(grouped, -1)).toEqual([]);
   });
 
   it("applies a sub-grouping inside each involvement group", () => {

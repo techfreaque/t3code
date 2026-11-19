@@ -1,10 +1,11 @@
-import type { PullRequestListEntry } from "@t3tools/contracts";
+import type { PullRequestInvolvement, PullRequestListEntry } from "@t3tools/contracts";
 import { msg } from "gt-react";
 
-import type { PullRequestGroupBy } from "./pullRequestListPreferences";
+import type { PullRequestGroupBy, PullRequestListSort } from "./pullRequestListPreferences";
 import {
   comparePullRequestsByRecency,
   rankPullRequestMatches,
+  sortPullRequestGroups,
   type PullRequestGroup,
 } from "./pullRequestList.logic";
 
@@ -28,7 +29,7 @@ interface Bucket {
 const LAST = Number.MAX_SAFE_INTEGER;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function poolPullRequestGroups<Entry extends PullRequestListEntry>(
+function poolPullRequestGroups<Entry extends PullRequestListEntry>(
   groups: ReadonlyArray<PullRequestGroup<Entry>>,
   text: string,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
@@ -43,6 +44,36 @@ export function poolPullRequestGroups<Entry extends PullRequestListEntry>(
           : entries.toSorted(comparePullRequestsByRecency),
     },
   ];
+}
+
+export function sortAndGroupPullRequests<Entry extends PullRequestListEntry>(
+  groups: ReadonlyArray<PullRequestGroup<Entry>>,
+  {
+    groupBy,
+    sort,
+    text,
+    involvement,
+    hasMeasuredSize,
+    now,
+  }: {
+    groupBy: ReadonlyArray<PullRequestGroupBy>;
+    sort: PullRequestListSort;
+    text: string;
+    involvement: PullRequestInvolvement;
+    hasMeasuredSize?: (entry: Entry) => boolean;
+    now: number;
+  },
+): ReadonlyArray<PullRequestGrouped<Entry>> {
+  // Blocked ranking needs the original involvement roles, except when search takes precedence.
+  const keepInvolvement =
+    groupBy[0] === "involvement" || (sort === "blocked" && text.trim().length === 0);
+  const pooled =
+    keepInvolvement || groups.length <= 1 ? groups : poolPullRequestGroups(groups, text);
+  return regroupPullRequests(
+    sortPullRequestGroups(pooled, sort, text, hasMeasuredSize, involvement),
+    groupBy,
+    now,
+  );
 }
 
 const fixed = (rank: number, key: string, label: string): Bucket => ({ key, label, rank });
@@ -77,6 +108,14 @@ const MERGEABILITY_BUCKETS = {
   mergeable: fixed(1, "mergeable", msg("Mergeable")),
   unknown: fixed(2, "unknown", msg("Merge state unknown")),
 };
+
+const DRAFT_BUCKETS = {
+  ready: fixed(0, "ready", msg("Ready for review")),
+  draft: fixed(1, "draft", msg("Drafts", { $context: "pull request group" })),
+};
+
+const UNKNOWN_AUTHOR = named("", msg("Unknown author"), true);
+const NO_LABEL = named("", msg("No label"), true);
 
 const AGE_BUCKETS = [
   fixed(0, "today", msg("Updated today")),
@@ -113,9 +152,7 @@ function bucketOf(
     case "host":
       return named(entry.host, entry.host);
     case "author":
-      return entry.author === null
-        ? named("", msg("Unknown author"), true)
-        : named(entry.author.login, entry.author.login);
+      return entry.author === null ? UNKNOWN_AUTHOR : named(entry.author.login, entry.author.login);
     case "state":
       return STATE_BUCKETS[entry.state];
     case "review":
@@ -123,14 +160,12 @@ function bucketOf(
     case "checks":
       return CHECKS_BUCKETS[entry.checksState ?? "none"];
     case "draft":
-      return entry.isDraft
-        ? fixed(1, "draft", msg("Drafts", { $context: "pull request group" }))
-        : fixed(0, "ready", msg("Ready for review"));
+      return entry.isDraft ? DRAFT_BUCKETS.draft : DRAFT_BUCKETS.ready;
     case "mergeability":
       return MERGEABILITY_BUCKETS[entry.mergeability];
     case "label": {
       const label = firstLabel(entry);
-      return label === null ? named("", msg("No label"), true) : named(label, label);
+      return label === null ? NO_LABEL : named(label, label);
     }
     case "base":
       return { key: `=${entry.baseBranch}`, label: entry.baseBranch, rank: 0 };
@@ -194,8 +229,9 @@ function prefixOfGroup<Entry extends PullRequestListEntry>(
   group: PullRequestGrouped<Entry>,
   budget: number,
 ): PullRequestGrouped<Entry> | null {
+  if (budget <= 0 || group.entries.length === 0) return null;
+  if (group.entries.length <= budget) return group;
   const entries = group.entries.slice(0, budget);
-  if (entries.length === 0) return null;
   if (group.children === undefined) return { ...group, entries };
   let remaining = entries.length;
   const children: PullRequestGrouped<Entry>[] = [];
@@ -214,10 +250,13 @@ export function slicePullRequestGroups<Entry extends PullRequestListEntry>(
   limit: number,
 ): ReadonlyArray<PullRequestGrouped<Entry>> {
   let left = limit;
-  return groups.flatMap((group) => {
+  const shownGroups: PullRequestGrouped<Entry>[] = [];
+  for (const group of groups) {
+    if (left <= 0) break;
     const shown = prefixOfGroup(group, left);
-    if (shown === null) return [];
+    if (shown === null) continue;
     left -= shown.entries.length;
-    return [shown];
-  });
+    shownGroups.push(shown);
+  }
+  return shownGroups;
 }

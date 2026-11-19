@@ -117,16 +117,18 @@ function resolvePreferenceStorage(
   return storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
 }
 
-function groupingPreference(groupBy: ReadonlyArray<PullRequestGroupBy> | undefined): {
-  groupBy?: ReadonlyArray<PullRequestGroupBy>;
-} {
+/** The grouping as the URL and a saved view keep it: normalized, and left out when default. */
+export function storedPullRequestGrouping(
+  groupBy: ReadonlyArray<PullRequestGroupBy> | undefined,
+): ReadonlyArray<PullRequestGroupBy> | undefined {
   const levels = normalizePullRequestGrouping(groupBy);
-  return levels.join() === DEFAULT_PULL_REQUEST_GROUP_BY.join() ? {} : { groupBy: levels };
+  return levels.join() === DEFAULT_PULL_REQUEST_GROUP_BY.join() ? undefined : levels;
 }
 
 export function pullRequestListPreferences(
   search: PullRequestListPreferences | Schema.Schema.Type<typeof PullRequestListPreferencesSchema>,
 ): PullRequestListPreferences {
+  const groupBy = storedPullRequestGrouping(search.groupBy);
   return {
     involvement: search.involvement,
     state: search.state,
@@ -140,7 +142,7 @@ export function pullRequestListPreferences(
     ...(search.author ? { author: search.author } : {}),
     ...(search.labels && search.labels.length > 0 ? { labels: search.labels } : {}),
     ...(search.sort && search.sort !== "ready" ? { sort: search.sort } : {}),
-    ...groupingPreference(search.groupBy),
+    ...(groupBy ? { groupBy } : {}),
   };
 }
 

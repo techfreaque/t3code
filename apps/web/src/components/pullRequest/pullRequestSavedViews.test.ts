@@ -102,6 +102,15 @@ describe("saved PR views", () => {
     expect(
       pullRequestViewMatches(view, { ...preferences, groupBy: ["repository", "state", "review"] }),
     ).toBe(true);
+    expect(
+      pullRequestViewMatches(view, { ...preferences, groupBy: ["state", "repository", "review"] }),
+    ).toBe(false);
+    expect(
+      pullRequestViewMatches(
+        { ...view, preferences: { ...preferences, groupBy: undefined } },
+        { ...preferences, groupBy: ["involvement"] },
+      ),
+    ).toBe(true);
     const restored = {
       ...preferences,
       ...pullRequestSavedViewPatch({ involvement: "all", state: "open" }),

@@ -3,6 +3,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  defaultStringifySearch,
 } from "@tanstack/react-router";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -52,6 +53,16 @@ describe("pull requests route search", () => {
     expect(matchedSearch("/pull-requests?groupBy=colour")?.groupBy).toBeUndefined();
     expect(matchedSearch("/pull-requests?groupBy=involvement")?.groupBy).toBeUndefined();
     expect(matchedSearch("/pull-requests?groupBy=none")?.groupBy).toEqual(["none"]);
+    expect(
+      matchedSearch(
+        `/pull-requests${defaultStringifySearch({ groupBy: ["repository", "state", "draft"] })}`,
+      )?.groupBy,
+    ).toEqual(["repository", "state", "draft"]);
+    expect(
+      matchedSearch(
+        `/pull-requests${defaultStringifySearch({ groupBy: [null, 1, ["host"], "state", "none", "review"] })}`,
+      )?.groupBy,
+    ).toEqual(["state"]);
   });
 
   it("clears invalid sort and involvement values", () => {

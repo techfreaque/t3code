@@ -26,7 +26,6 @@ import {
   resolveProjectScope,
   resolveQueryEnvironmentIds,
   resolveSelectedEnvironmentId,
-  sortPullRequestGroups,
   withDiffStat,
   type EnvironmentPullRequestEntry,
   type MergedPullRequestList,
@@ -41,7 +40,7 @@ import type {
   PullRequestListSort,
 } from "./pullRequestListPreferences";
 import { useNowMinute } from "~/hooks/useNowMinute";
-import { poolPullRequestGroups, regroupPullRequests } from "./pullRequestGrouping.logic";
+import { sortAndGroupPullRequests } from "./pullRequestGrouping.logic";
 import {
   pullRequestProjectQueries,
   type PullRequestHostAvailability,
@@ -318,21 +317,15 @@ export function usePullRequestDisplayGroups({
             : overridden,
       };
     });
-    // Any grouping but the involvement split pools the rows, so the sort orders each bucket
-    // as it would the whole list.
-    const pooled =
-      groupBy[0] === "involvement" || sort === "blocked" || enriched.length <= 1
-        ? enriched
-        : poolPullRequestGroups(enriched, text);
-    const sorted = sortPullRequestGroups(
-      pooled,
+    return sortAndGroupPullRequests(enriched, {
+      groupBy,
       sort,
       text,
-      (entry) =>
+      hasMeasuredSize: (entry) =>
         entry.additions + entry.deletions > 0 || statsByRow.has(pullRequestDiffStatKey(entry)),
       involvement,
-    );
-    return regroupPullRequests(sorted, groupBy, now);
+      now,
+    });
   })();
   const shownCount = displayGroups.reduce((count, group) => count + group.entries.length, 0);
   const hostActionsOf = pullRequestHostActions(hosts);

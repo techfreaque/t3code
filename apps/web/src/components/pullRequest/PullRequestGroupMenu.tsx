@@ -11,10 +11,6 @@ import {
   type PullRequestGroupBy,
 } from "./pullRequestListPreferences";
 
-/**
- * Group the list by as many levels as there are things to group by: each level splits every
- * group above it again. The levels are saved with a view.
- */
 export function PullRequestGroupMenu({
   groupBy,
   onChange,
@@ -27,11 +23,11 @@ export function PullRequestGroupMenu({
   const options = resolveFilterOptions(GROUP_BY_OPTIONS, resolve);
   const flat = groupBy[0] === "none";
   const isDefault = groupBy.join() === DEFAULT_PULL_REQUEST_GROUP_BY.join();
-  // One menu entry per level in use, and one more to add a level while anything is left to
-  // group by.
-  const levelCount = flat
-    ? 1
-    : Math.min(groupBy.length + 1, options.filter((option) => option.value !== "none").length);
+  const canAddLevel = options.some(
+    (option) =>
+      option.value !== "none" && option.value !== "involvement" && !groupBy.includes(option.value),
+  );
+  const levelCount = groupBy.length + Number(!flat && canAddLevel);
   const setLevel = (index: number, value: PullRequestGroupBy) =>
     onChange({
       groupBy: normalizePullRequestGrouping([

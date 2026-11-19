@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import {
   PullRequestGroupBy,
-  pullRequestListPreferences,
+  storedPullRequestGrouping,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { SORT_OPTIONS } from "../components/pullRequest/pullRequestListOptions";
 import { type PullRequestsSearch } from "../components/pullRequest/usePullRequestListView";
@@ -30,13 +30,13 @@ function pullRequestSearchLabels(raw: unknown): PullRequestsSearch["labels"] {
   return labels.length === 0 ? undefined : labels;
 }
 
-/** The grouping levels, outermost first, as a saved view keeps them. */
+/** The known grouping levels, outermost first. */
 function groupingOf(raw: unknown) {
-  const levels = (Array.isArray(raw) ? raw : [raw]).flatMap((value) => {
-    const level = PullRequestGroupBy.literals.find((option) => option === value);
-    return level === undefined ? [] : [level];
-  });
-  return pullRequestListPreferences({ involvement: "all", state: "open", groupBy: levels }).groupBy;
+  return storedPullRequestGrouping(
+    (Array.isArray(raw) ? raw : [raw]).flatMap((value) =>
+      PullRequestGroupBy.literals.filter((level) => level === value),
+    ),
+  );
 }
 
 export const Route = createFileRoute("/_chat/pull-requests")({
