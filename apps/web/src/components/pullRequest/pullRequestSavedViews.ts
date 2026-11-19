@@ -60,6 +60,5 @@ export function pullRequestSavedViewPatch(
     labels: preferences.labels,
     sort: preferences.sort,
     groupBy: preferences.groupBy,
-    subGroupBy: preferences.subGroupBy,
   };
 }

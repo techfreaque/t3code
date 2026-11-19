@@ -21,8 +21,7 @@ const preferences = {
   author: "me",
   labels: ["bug", "priority"],
   sort: "updated",
-  groupBy: "repository",
-  subGroupBy: "state",
+  groupBy: ["repository", "state", "review"],
 } as const satisfies PullRequestListPreferences;
 const view = { id: "review", name: "PRs Requesting My Review", preferences };
 
@@ -79,25 +78,30 @@ describe("saved PR views", () => {
     expect(pullRequestViewMatches(view, { ...preferences, labels: ["bug"] })).toBe(false);
   });
 
-  it("saves the grouping with a view and drops a sub-grouping that has nothing to split", () => {
-    expect(pullRequestListPreferences(preferences)).toMatchObject({
-      groupBy: "repository",
-      subGroupBy: "state",
-    });
+  it("saves every grouping level with a view and tidies a sequence that cannot split", () => {
+    expect(pullRequestListPreferences(preferences).groupBy).toEqual([
+      "repository",
+      "state",
+      "review",
+    ]);
     expect(
-      pullRequestListPreferences({ ...preferences, groupBy: "involvement" }),
+      pullRequestListPreferences({ ...preferences, groupBy: ["involvement"] }),
     ).not.toHaveProperty("groupBy");
     expect(
-      pullRequestListPreferences({ ...preferences, subGroupBy: "repository" }),
-    ).not.toHaveProperty("subGroupBy");
-    expect(pullRequestListPreferences({ ...preferences, groupBy: "none" })).not.toHaveProperty(
-      "subGroupBy",
+      pullRequestListPreferences({
+        ...preferences,
+        groupBy: ["state", "state", "involvement", "review"],
+      }).groupBy,
+    ).toEqual(["state", "review"]);
+    expect(
+      pullRequestListPreferences({ ...preferences, groupBy: ["none", "state"] }).groupBy,
+    ).toEqual(["none"]);
+    expect(pullRequestViewMatches(view, { ...preferences, groupBy: ["repository", "state"] })).toBe(
+      false,
     );
     expect(
-      pullRequestListPreferences({ ...preferences, subGroupBy: "involvement" }),
-    ).not.toHaveProperty("subGroupBy");
-    expect(pullRequestViewMatches(view, { ...preferences, groupBy: "author" })).toBe(false);
-    expect(pullRequestViewMatches(view, { ...preferences, subGroupBy: "author" })).toBe(false);
+      pullRequestViewMatches(view, { ...preferences, groupBy: ["repository", "state", "review"] }),
+    ).toBe(true);
     const restored = {
       ...preferences,
       ...pullRequestSavedViewPatch({ involvement: "all", state: "open" }),

@@ -12162,7 +12162,6 @@
   "a749275f1ad66618": "Unknown author",
   "6a0b5f86fac41a08": "Drafts",
   "74b0e50c2d742cde": "No label",
-  "20bce76698f0b977": "No sub-grouping",
   "61e8314425ae66bb": "Group",
   "db93215db2ff539a": "Group by",
   "5ec249e3e44842da": "Then by",
@@ -12179,5 +12178,6 @@
   "42dfb6af4eeada3e": "Mergeability",
   "1ba9f0a9eefff8a7": "Label",
   "d58e16d9ae750df3": "Target branch",
-  "363f8fcfe9130eba": "Last updated"
+  "363f8fcfe9130eba": "Last updated",
+  "4d7e6dec5c4f8306": "No further grouping"
 }

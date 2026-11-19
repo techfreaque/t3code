@@ -41,8 +41,27 @@ export const PullRequestGroupBy = Schema.Literals([
 ]);
 export type PullRequestGroupBy = typeof PullRequestGroupBy.Type;
 
-export const DEFAULT_PULL_REQUEST_GROUP_BY = "involvement" satisfies PullRequestGroupBy;
-export const DEFAULT_PULL_REQUEST_SUBGROUP_BY = "none" satisfies PullRequestGroupBy;
+export const DEFAULT_PULL_REQUEST_GROUP_BY: ReadonlyArray<PullRequestGroupBy> = ["involvement"];
+
+/**
+ * The grouping levels as the list reads them, outermost first. A level repeats nothing above
+ * it, `involvement` only opens the list, and `none` ends it (leading, it means no grouping at
+ * all), so what is left always has something to split.
+ */
+export function normalizePullRequestGrouping(
+  levels: ReadonlyArray<PullRequestGroupBy> | undefined,
+): ReadonlyArray<PullRequestGroupBy> {
+  const kept: PullRequestGroupBy[] = [];
+  for (const level of levels ?? []) {
+    if (level === "none") {
+      if (kept.length === 0) return ["none"];
+      break;
+    }
+    if (kept.includes(level) || (level === "involvement" && kept.length > 0)) continue;
+    kept.push(level);
+  }
+  return kept.length === 0 ? DEFAULT_PULL_REQUEST_GROUP_BY : kept;
+}
 
 export interface PullRequestListPreferences {
   readonly involvement: PullRequestInvolvement;
@@ -57,8 +76,7 @@ export interface PullRequestListPreferences {
   readonly author?: string | undefined;
   readonly labels?: ReadonlyArray<string> | undefined;
   readonly sort?: PullRequestListSort | undefined;
-  readonly groupBy?: PullRequestGroupBy | undefined;
-  readonly subGroupBy?: PullRequestGroupBy | undefined;
+  readonly groupBy?: ReadonlyArray<PullRequestGroupBy> | undefined;
 }
 
 export type PullRequestListPreferencePatch = {
@@ -84,8 +102,7 @@ export const PullRequestListPreferencesSchema = Schema.Struct({
   author: Schema.optional(BoundedPreference),
   labels: Schema.optional(Schema.Array(BoundedPreference).check(Schema.isMaxLength(10))),
   sort: Schema.optional(PullRequestListSort),
-  groupBy: Schema.optional(PullRequestGroupBy),
-  subGroupBy: Schema.optional(PullRequestGroupBy),
+  groupBy: Schema.optional(Schema.Array(PullRequestGroupBy).check(Schema.isMaxLength(16))),
 });
 
 const decodePullRequestListPreferences = Schema.decodeUnknownOption(
@@ -98,6 +115,13 @@ function resolvePreferenceStorage(
   storage: PreferenceStorage | undefined,
 ): PreferenceStorage | undefined {
   return storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
+}
+
+function groupingPreference(groupBy: ReadonlyArray<PullRequestGroupBy> | undefined): {
+  groupBy?: ReadonlyArray<PullRequestGroupBy>;
+} {
+  const levels = normalizePullRequestGrouping(groupBy);
+  return levels.join() === DEFAULT_PULL_REQUEST_GROUP_BY.join() ? {} : { groupBy: levels };
 }
 
 export function pullRequestListPreferences(
@@ -116,17 +140,7 @@ export function pullRequestListPreferences(
     ...(search.author ? { author: search.author } : {}),
     ...(search.labels && search.labels.length > 0 ? { labels: search.labels } : {}),
     ...(search.sort && search.sort !== "ready" ? { sort: search.sort } : {}),
-    ...(search.groupBy && search.groupBy !== DEFAULT_PULL_REQUEST_GROUP_BY
-      ? { groupBy: search.groupBy }
-      : {}),
-    // A sub-grouping equal to the grouping, or under no grouping, has nothing to split.
-    ...(search.subGroupBy &&
-    search.subGroupBy !== DEFAULT_PULL_REQUEST_SUBGROUP_BY &&
-    search.subGroupBy !== "involvement" &&
-    search.subGroupBy !== (search.groupBy ?? DEFAULT_PULL_REQUEST_GROUP_BY) &&
-    search.groupBy !== "none"
-      ? { subGroupBy: search.subGroupBy }
-      : {}),
+    ...groupingPreference(search.groupBy),
   };
 }
 

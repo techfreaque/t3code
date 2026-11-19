@@ -11,6 +11,7 @@ import {
   slicePullRequestGroups,
 } from "./pullRequestGrouping.logic";
 import type { PullRequestGroup } from "./pullRequestList.logic";
+import { normalizePullRequestGrouping } from "./pullRequestListPreferences";
 
 const NOW = Date.parse("2026-07-20T12:00:00Z");
 
@@ -72,7 +73,7 @@ describe("regroupPullRequests", () => {
       { key: "others", label: "Others", entries: [entry(2)] },
     ];
 
-    expect(regroupPullRequests(groups, "involvement", "none", NOW)).toEqual(groups);
+    expect(regroupPullRequests(groups, ["involvement"], NOW)).toEqual(groups);
   });
 
   it("pools everything into one unheaded group for no grouping", () => {
@@ -81,12 +82,12 @@ describe("regroupPullRequests", () => {
       { key: "others", label: "Others", entries: [entry(2)] },
     ];
 
-    const grouped = regroupPullRequests(groups, "none", "none", NOW);
+    const grouped = regroupPullRequests(groups, ["none"], NOW);
 
     expect(grouped).toHaveLength(1);
     expect(grouped[0]?.label).toBe("");
     expect(numbers(grouped[0]?.entries ?? [])).toEqual([1, 2]);
-    expect(regroupPullRequests(groups, "none", "state", NOW)[0]?.subgroups).toBeUndefined();
+    expect(regroupPullRequests(groups, ["none", "state"], NOW)[0]?.children).toBeUndefined();
   });
 
   it("groups by repository alphabetically and keeps the incoming order inside a group", () => {
@@ -96,15 +97,14 @@ describe("regroupPullRequests", () => {
         entry(2, { repository: "a/repo" }),
         entry(3, { repository: "b/repo" }),
       ]),
-      "repository",
-      "none",
+      ["repository"],
       NOW,
     );
 
     expect(grouped.map((group) => group.label)).toEqual(["a/repo", "b/repo"]);
     expect(numbers(grouped[1]?.entries ?? [])).toEqual([1, 3]);
     expect(
-      regroupPullRequests(one([entry(1, { baseBranch: "Main" }), entry(2)]), "base", "none", NOW),
+      regroupPullRequests(one([entry(1, { baseBranch: "Main" }), entry(2)]), ["base"], NOW),
     ).toHaveLength(2);
   });
 
@@ -114,7 +114,7 @@ describe("regroupPullRequests", () => {
       entry(2, { state: "merged" }),
       entry(3, { state: "open" }),
     ];
-    expect(keys(regroupPullRequests(one(states), "state", "none", NOW))).toEqual([
+    expect(keys(regroupPullRequests(one(states), ["state"], NOW))).toEqual([
       "open",
       "merged",
       "closed",
@@ -125,7 +125,7 @@ describe("regroupPullRequests", () => {
       entry(5, { reviewDecision: "approved" }),
       entry(6, { reviewDecision: "changes-requested" }),
     ];
-    expect(keys(regroupPullRequests(one(reviewed), "review", "none", NOW))).toEqual([
+    expect(keys(regroupPullRequests(one(reviewed), ["review"], NOW))).toEqual([
       "approved",
       "changes-requested",
       "none",
@@ -136,7 +136,7 @@ describe("regroupPullRequests", () => {
       entry(8),
       entry(9, { checksState: "failing" }),
     ];
-    expect(keys(regroupPullRequests(one(checked), "checks", "none", NOW))).toEqual([
+    expect(keys(regroupPullRequests(one(checked), ["checks"], NOW))).toEqual([
       "failing",
       "passing",
       "none",
@@ -146,8 +146,8 @@ describe("regroupPullRequests", () => {
   it("splits drafts from ready rows and merge conflicts from mergeable ones", () => {
     const rows = [entry(1, { isDraft: true }), entry(2), entry(3, { mergeability: "conflicting" })];
 
-    expect(keys(regroupPullRequests(one(rows), "draft", "none", NOW))).toEqual(["ready", "draft"]);
-    expect(keys(regroupPullRequests(one(rows), "mergeability", "none", NOW))).toEqual([
+    expect(keys(regroupPullRequests(one(rows), ["draft"], NOW))).toEqual(["ready", "draft"]);
+    expect(keys(regroupPullRequests(one(rows), ["mergeability"], NOW))).toEqual([
       "conflicting",
       "mergeable",
     ]);
@@ -162,7 +162,7 @@ describe("regroupPullRequests", () => {
       entry(5, { updatedAt: "not a date" }),
     ];
 
-    const grouped = regroupPullRequests(one(rows), "updated", "none", NOW);
+    const grouped = regroupPullRequests(one(rows), ["updated"], NOW);
 
     expect(keys(grouped)).toEqual(["today", "week", "month", "older"]);
     expect(numbers(grouped[3]?.entries ?? [])).toEqual([4, 5]);
@@ -180,7 +180,7 @@ describe("regroupPullRequests", () => {
       entry(3, { labels: [{ name: "beta", color: null }] }),
     ];
 
-    const grouped = regroupPullRequests(one(rows), "label", "none", NOW);
+    const grouped = regroupPullRequests(one(rows), ["label"], NOW);
 
     expect(grouped.map((group) => group.label)).toEqual(["Beta", "No label"]);
     expect(numbers(grouped[0]?.entries ?? [])).toEqual([1, 3]);
@@ -193,9 +193,10 @@ describe("regroupPullRequests", () => {
       entry(2, { author: { login: "ana", name: null, avatarUrl: null } }),
     ];
 
-    expect(
-      regroupPullRequests(one(rows), "author", "none", NOW).map((group) => group.label),
-    ).toEqual(["ana", "Unknown author"]);
+    expect(regroupPullRequests(one(rows), ["author"], NOW).map((group) => group.label)).toEqual([
+      "ana",
+      "Unknown author",
+    ]);
   });
 
   it("splits each group again for a sub-grouping and keeps every row once", () => {
@@ -206,26 +207,24 @@ describe("regroupPullRequests", () => {
       entry(4, { repository: "a/repo", state: "open" }),
     ];
 
-    const grouped = regroupPullRequests(one(rows), "repository", "state", NOW);
+    const grouped = regroupPullRequests(one(rows), ["repository", "state"], NOW);
 
     expect(grouped.map((group) => group.label)).toEqual(["a/repo", "b/repo"]);
-    expect(keys(grouped[0]?.subgroups ?? [])).toEqual(["open", "merged"]);
+    expect(keys(grouped[0]?.children ?? [])).toEqual(["open", "merged"]);
     // A group's rows follow its sub-group order, so the list reads top to bottom as it shows.
     expect(numbers(grouped[0]?.entries ?? [])).toEqual([2, 4, 1]);
     expect(grouped.flatMap((group) => group.entries)).toHaveLength(4);
     expect(
       grouped.flatMap(
-        (group) => group.subgroups?.flatMap((subgroup) => subgroup.entries) ?? group.entries,
+        (group) => group.children?.flatMap((child) => child.entries) ?? group.entries,
       ),
     ).toEqual(grouped.flatMap((group) => group.entries));
     const sliced = slicePullRequestGroups(grouped, 2);
     expect(sliced).toHaveLength(1);
     expect(numbers(sliced[0]?.entries ?? [])).toEqual([2, 4]);
-    expect(sliced[0]?.subgroups?.map((subgroup) => numbers(subgroup.entries))).toEqual([[2, 4]]);
+    expect(sliced[0]?.children?.map((child) => numbers(child.entries))).toEqual([[2, 4]]);
     expect(
-      slicePullRequestGroups(grouped, 3)[0]?.subgroups?.map((subgroup) =>
-        numbers(subgroup.entries),
-      ),
+      slicePullRequestGroups(grouped, 3)[0]?.children?.map((child) => numbers(child.entries)),
     ).toEqual([[2, 4], [1]]);
     expect(slicePullRequestGroups(grouped, 4)).toEqual(grouped);
     expect(slicePullRequestGroups(grouped, 0)).toEqual([]);
@@ -237,18 +236,69 @@ describe("regroupPullRequests", () => {
       { key: "others", label: "Others", entries: [entry(3)] },
     ];
 
-    const grouped = regroupPullRequests(groups, "involvement", "draft", NOW);
+    const grouped = regroupPullRequests(groups, ["involvement", "draft"], NOW);
 
     expect(keys(grouped)).toEqual(["authored", "others"]);
-    expect(keys(grouped[0]?.subgroups ?? [])).toEqual(["ready", "draft"]);
+    expect(keys(grouped[0]?.children ?? [])).toEqual(["ready", "draft"]);
   });
 
-  it("ignores a sub-grouping that repeats the grouping or is involvement", () => {
-    const rows = [entry(1), entry(2)];
+  it("splits again at every level, to any depth, keeping each row once", () => {
+    const rows = [
+      entry(1, { repository: "a/repo", state: "open", isDraft: true }),
+      entry(2, { repository: "a/repo", state: "open" }),
+      entry(3, { repository: "a/repo", state: "merged" }),
+      entry(4, { repository: "b/repo", state: "open", author: null }),
+    ];
 
-    expect(regroupPullRequests(one(rows), "state", "state", NOW)[0]?.subgroups).toBeUndefined();
-    expect(
-      regroupPullRequests(one(rows), "state", "involvement", NOW)[0]?.subgroups,
-    ).toBeUndefined();
+    const grouped = regroupPullRequests(one(rows), ["repository", "state", "draft", "author"], NOW);
+
+    const a = grouped[0];
+    expect(a?.label).toBe("a/repo");
+    expect(keys(a?.children ?? [])).toEqual(["open", "merged"]);
+    const open = a?.children?.[0];
+    expect(keys(open?.children ?? [])).toEqual(["ready", "draft"]);
+    expect(keys(open?.children?.[0]?.children ?? [])).toEqual(["=octocat"]);
+    // Every group's rows follow its children's order, so the list reads as it shows.
+    expect(numbers(open?.entries ?? [])).toEqual([2, 1]);
+    expect(numbers(a?.entries ?? [])).toEqual([2, 1, 3]);
+    expect(grouped.flatMap((group) => group.entries)).toHaveLength(4);
+  });
+
+  it("cuts a deep tree to a prefix of rows at every level", () => {
+    const rows = [
+      entry(1, { repository: "a/repo", state: "open" }),
+      entry(2, { repository: "a/repo", state: "open", isDraft: true }),
+      entry(3, { repository: "a/repo", state: "merged" }),
+    ];
+    const grouped = regroupPullRequests(one(rows), ["repository", "state", "draft"], NOW);
+
+    const sliced = slicePullRequestGroups(grouped, 2);
+
+    expect(numbers(sliced[0]?.entries ?? [])).toEqual([1, 2]);
+    expect(keys(sliced[0]?.children ?? [])).toEqual(["open"]);
+    expect(keys(sliced[0]?.children?.[0]?.children ?? [])).toEqual(["ready", "draft"]);
+    expect(slicePullRequestGroups(grouped, 10)).toEqual(grouped);
+  });
+});
+
+describe("normalizePullRequestGrouping", () => {
+  it("falls back to involvement and keeps a sound sequence as it is", () => {
+    expect(normalizePullRequestGrouping(undefined)).toEqual(["involvement"]);
+    expect(normalizePullRequestGrouping([])).toEqual(["involvement"]);
+    expect(normalizePullRequestGrouping(["repository", "review", "checks"])).toEqual([
+      "repository",
+      "review",
+      "checks",
+    ]);
+  });
+
+  it("drops repeats, a later involvement, and everything after none", () => {
+    expect(normalizePullRequestGrouping(["state", "state", "review"])).toEqual(["state", "review"]);
+    expect(normalizePullRequestGrouping(["state", "involvement", "review"])).toEqual([
+      "state",
+      "review",
+    ]);
+    expect(normalizePullRequestGrouping(["state", "none", "review"])).toEqual(["state"]);
+    expect(normalizePullRequestGrouping(["none", "state"])).toEqual(["none"]);
   });
 });

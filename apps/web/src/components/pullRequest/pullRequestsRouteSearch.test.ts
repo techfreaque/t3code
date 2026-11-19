@@ -37,23 +37,21 @@ describe("pull requests route search", () => {
     expect(matchedSearch("/pull-requests?q=%224089%22")?.q).toBe("4089");
   });
 
-  it("keeps a known grouping and sub-grouping and drops anything else", () => {
-    const search = matchedSearch("/pull-requests?groupBy=repository&subGroupBy=review");
-    expect(search?.groupBy).toBe("repository");
-    expect(search?.subGroupBy).toBe("review");
-
-    const unknown = matchedSearch("/pull-requests?groupBy=colour&subGroupBy=7");
-    expect(unknown?.groupBy).toBeUndefined();
-    expect(unknown?.subGroupBy).toBeUndefined();
+  it("keeps known grouping levels, outermost first, and drops anything else", () => {
+    expect(matchedSearch("/pull-requests?groupBy=repository")?.groupBy).toEqual(["repository"]);
     expect(
-      matchedSearch("/pull-requests?groupBy=none&subGroupBy=review")?.subGroupBy,
-    ).toBeUndefined();
+      matchedSearch(
+        `/pull-requests?groupBy=${encodeURIComponent(JSON.stringify(["repository", "review", "checks"]))}`,
+      )?.groupBy,
+    ).toEqual(["repository", "review", "checks"]);
     expect(
-      matchedSearch("/pull-requests?groupBy=review&subGroupBy=review")?.subGroupBy,
-    ).toBeUndefined();
-    expect(
-      matchedSearch("/pull-requests?groupBy=repository&subGroupBy=involvement")?.subGroupBy,
-    ).toBeUndefined();
+      matchedSearch(
+        `/pull-requests?groupBy=${encodeURIComponent(JSON.stringify(["state", "colour", "state", "involvement", "review"]))}`,
+      )?.groupBy,
+    ).toEqual(["state", "review"]);
+    expect(matchedSearch("/pull-requests?groupBy=colour")?.groupBy).toBeUndefined();
+    expect(matchedSearch("/pull-requests?groupBy=involvement")?.groupBy).toBeUndefined();
+    expect(matchedSearch("/pull-requests?groupBy=none")?.groupBy).toEqual(["none"]);
   });
 
   it("clears invalid sort and involvement values", () => {

@@ -30,18 +30,13 @@ function pullRequestSearchLabels(raw: unknown): PullRequestsSearch["labels"] {
   return labels.length === 0 ? undefined : labels;
 }
 
-const groupingOption = (raw: unknown): PullRequestGroupBy | undefined =>
-  PullRequestGroupBy.literals.find((option) => option === raw);
-
-/** The grouping as a saved view keeps it, so a sub-grouping with nothing to split is dropped. */
-function groupingOf(raw: Record<string, unknown>) {
-  const { groupBy, subGroupBy } = pullRequestListPreferences({
-    involvement: "all",
-    state: "open",
-    groupBy: groupingOption(raw.groupBy),
-    subGroupBy: groupingOption(raw.subGroupBy),
+/** The grouping levels, outermost first, as a saved view keeps them. */
+function groupingOf(raw: unknown) {
+  const levels = (Array.isArray(raw) ? raw : [raw]).flatMap((value) => {
+    const level = PullRequestGroupBy.literals.find((option) => option === value);
+    return level === undefined ? [] : [level];
   });
-  return { groupBy, subGroupBy };
+  return pullRequestListPreferences({ involvement: "all", state: "open", groupBy: levels }).groupBy;
 }
 
 export const Route = createFileRoute("/_chat/pull-requests")({
@@ -54,7 +49,7 @@ export const Route = createFileRoute("/_chat/pull-requests")({
     sort: SORT_OPTIONS.find((option) => option.value === raw.sort)?.value,
     // Always include the keys, so an unknown value in the parent route's unvalidated search
     // cannot reach the list.
-    ...groupingOf(raw),
+    groupBy: groupingOf(raw.groupBy),
     ...(typeof raw.repository === "string" && raw.repository
       ? { repository: raw.repository.slice(0, 200) }
       : {}),

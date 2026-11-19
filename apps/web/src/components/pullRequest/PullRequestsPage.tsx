@@ -57,8 +57,7 @@ import {
   pullRequestListPreferences,
   type PullRequestListPreferencePatch,
   writePullRequestListPreferences,
-  DEFAULT_PULL_REQUEST_GROUP_BY,
-  DEFAULT_PULL_REQUEST_SUBGROUP_BY,
+  normalizePullRequestGrouping,
 } from "./pullRequestListPreferences";
 import { SavedViewsMenu } from "../SavedViewsMenu";
 import { PullRequestGroupMenu } from "./PullRequestGroupMenu";
@@ -199,6 +198,7 @@ export function PullRequestsPage() {
   const resolve = useMessages();
   const search = useSearch({ from: "/_chat/pull-requests" });
   const sort = search.sort ?? "ready";
+  const groupLevels = normalizePullRequestGrouping(search.groupBy);
   const statsPolicy: PullRequestStatsPolicy =
     sort === "ready" || sort === "largest" || sort === "smallest" ? "eager" : "visible";
   const navigate = useNavigate({ from: "/pull-requests" });
@@ -277,7 +277,6 @@ export function PullRequestsPage() {
           state: next.state ?? previous.state,
           ...(next.sort && next.sort !== "ready" ? { sort: next.sort } : {}),
           ...(next.groupBy ? { groupBy: next.groupBy } : {}),
-          ...(next.subGroupBy ? { subGroupBy: next.subGroupBy } : {}),
           ...(next.repository ? { repository: next.repository } : {}),
           ...(next.number ? { number: next.number } : {}),
           ...(next.projectId ? { projectId: next.projectId } : {}),
@@ -1018,8 +1017,7 @@ export function PullRequestsPage() {
     sort,
     text: typedParsed.text,
     involvement: search.involvement,
-    groupBy: search.groupBy ?? DEFAULT_PULL_REQUEST_GROUP_BY,
-    subGroupBy: search.subGroupBy ?? DEFAULT_PULL_REQUEST_SUBGROUP_BY,
+    groupBy: groupLevels,
   });
   const showProvider = hosts.length > 1;
   const [closeSweepKeys, setCloseSweepKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -1036,7 +1034,7 @@ export function PullRequestsPage() {
   useEffect(
     () => () => closeSensorRef.current?.cancel(),
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The pointer sensor lives outside React; a new list under a sweep in progress must end it.
-    [filterKey, search.q, sort, search.groupBy, search.subGroupBy],
+    [filterKey, search.q, sort, groupLevels.join()],
   );
   const startCloseSweep = useStableCallback(
     (entry: EnvironmentPullRequestEntry, event: PointerEvent) => {
@@ -1384,11 +1382,7 @@ export function PullRequestsPage() {
       onChange={(next) => updateListScope({ sort: next })}
     />
   );
-  const groupBy = search.groupBy ?? DEFAULT_PULL_REQUEST_GROUP_BY;
-  const subGroupBy = search.subGroupBy ?? DEFAULT_PULL_REQUEST_SUBGROUP_BY;
-  const groupMenu = (
-    <PullRequestGroupMenu groupBy={groupBy} subGroupBy={subGroupBy} onChange={updateListScope} />
-  );
+  const groupMenu = <PullRequestGroupMenu groupBy={groupLevels} onChange={updateListScope} />;
   const filtersMenu = (
     <PullRequestFiltersMenuInSidebarOrder
       onOpenChange={setFiltersOpen}

@@ -7,68 +7,82 @@ import { PullRequestFilterRadioSubmenu } from "./PullRequestListFilters";
 import { GROUP_BY_OPTIONS, resolveFilterOptions } from "./pullRequestListOptions";
 import {
   DEFAULT_PULL_REQUEST_GROUP_BY,
-  DEFAULT_PULL_REQUEST_SUBGROUP_BY,
+  normalizePullRequestGrouping,
   type PullRequestGroupBy,
 } from "./pullRequestListPreferences";
 
-/** Group the list, and optionally split each group again; both are saved with a view. */
+/**
+ * Group the list by as many levels as there are things to group by: each level splits every
+ * group above it again. The levels are saved with a view.
+ */
 export function PullRequestGroupMenu({
   groupBy,
-  subGroupBy,
   onChange,
 }: {
-  groupBy: PullRequestGroupBy;
-  subGroupBy: PullRequestGroupBy;
-  onChange: (patch: {
-    groupBy?: PullRequestGroupBy | undefined;
-    subGroupBy?: PullRequestGroupBy | undefined;
-  }) => void;
+  groupBy: ReadonlyArray<PullRequestGroupBy>;
+  onChange: (patch: { groupBy?: ReadonlyArray<PullRequestGroupBy> | undefined }) => void;
 }) {
   const gt = useGT();
   const resolve = useMessages();
   const options = resolveFilterOptions(GROUP_BY_OPTIONS, resolve);
-  // Involvement is a split of the whole list, so it only makes sense as the first level.
-  const subOptions = options
-    .filter((option) => option.value !== "involvement" && option.value !== groupBy)
-    .map((option) =>
-      option.value === "none" ? { ...option, label: gt("No sub-grouping") } : option,
-    );
-  const subDisabled = groupBy === "none";
-  // The route drops a sub-grouping with nothing to split, so `subGroupBy` is always one shown.
-  const active =
-    Number(groupBy !== DEFAULT_PULL_REQUEST_GROUP_BY) +
-    Number(subGroupBy !== DEFAULT_PULL_REQUEST_SUBGROUP_BY);
+  const flat = groupBy[0] === "none";
+  const isDefault = groupBy.join() === DEFAULT_PULL_REQUEST_GROUP_BY.join();
+  // One menu entry per level in use, and one more to add a level while anything is left to
+  // group by.
+  const levelCount = flat
+    ? 1
+    : Math.min(groupBy.length + 1, options.filter((option) => option.value !== "none").length);
+  const setLevel = (index: number, value: PullRequestGroupBy) =>
+    onChange({
+      groupBy: normalizePullRequestGrouping([
+        ...groupBy.slice(0, index),
+        value,
+        ...(value === "none" ? [] : groupBy.slice(index + 1)),
+      ]),
+    });
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" />}>
         <Rows3Icon aria-hidden className="size-4" />
         <span>{gt("Group", { $context: "verb, group a list" })}</span>
-        {active > 0 ? (
+        {!isDefault && !flat ? (
           <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
-            {active}
+            {groupBy.length}
           </span>
         ) : null}
       </MenuTrigger>
       <MenuPopup align="end" side="bottom">
-        <PullRequestFilterRadioSubmenu
-          label={gt("Group by", { $context: "pull request grouping" })}
-          value={groupBy}
-          options={options}
-          onChange={(next) => onChange({ groupBy: next })}
-        />
-        {subDisabled ? null : (
-          <PullRequestFilterRadioSubmenu
-            label={gt("Then by", { $context: "pull request sub-grouping" })}
-            value={subGroupBy}
-            options={subOptions}
-            onChange={(next) => onChange({ subGroupBy: next })}
-          />
-        )}
+        {Array.from({ length: levelCount }, (_, index) => {
+          const used = new Set(groupBy.filter((_level, at) => at !== index));
+          const choices = options
+            .filter(
+              (option) =>
+                !used.has(option.value) &&
+                // Involvement splits the whole list, so only the first level can be it.
+                (index === 0 || option.value !== "involvement"),
+            )
+            // Past the first level, "none" ends the grouping there.
+            .map((option) =>
+              index > 0 && option.value === "none"
+                ? { ...option, label: gt("No further grouping") }
+                : option,
+            );
+          return (
+            <PullRequestFilterRadioSubmenu
+              key={index}
+              label={
+                index === 0
+                  ? gt("Group by", { $context: "pull request grouping" })
+                  : gt("Then by", { $context: "pull request sub-grouping" })
+              }
+              value={groupBy[index] ?? "none"}
+              options={choices}
+              onChange={(next) => setLevel(index, next)}
+            />
+          );
+        })}
         <MenuSeparator />
-        <MenuItem
-          disabled={active === 0}
-          onClick={() => onChange({ groupBy: undefined, subGroupBy: undefined })}
-        >
+        <MenuItem disabled={isDefault} onClick={() => onChange({ groupBy: undefined })}>
           {gt("Reset grouping")}
         </MenuItem>
       </MenuPopup>

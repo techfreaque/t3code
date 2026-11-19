@@ -264,7 +264,6 @@ export function usePullRequestDisplayGroups({
   text,
   involvement,
   groupBy,
-  subGroupBy,
 }: {
   answered: MergedPullRequestList | null;
   host: string | undefined;
@@ -278,8 +277,7 @@ export function usePullRequestDisplayGroups({
   sort: PullRequestListSort;
   text: string;
   involvement: PullRequestInvolvement;
-  groupBy: PullRequestGroupBy;
-  subGroupBy: PullRequestGroupBy;
+  groupBy: ReadonlyArray<PullRequestGroupBy>;
 }) {
   const now = Date.parse(useNowMinute());
   const [hostsState, setHostsState] = useState<{
@@ -323,7 +321,7 @@ export function usePullRequestDisplayGroups({
     // Any grouping but the involvement split pools the rows, so the sort orders each bucket
     // as it would the whole list.
     const pooled =
-      groupBy === "involvement" || sort === "blocked" || enriched.length <= 1
+      groupBy[0] === "involvement" || sort === "blocked" || enriched.length <= 1
         ? enriched
         : poolPullRequestGroups(enriched, text);
     const sorted = sortPullRequestGroups(
@@ -334,7 +332,7 @@ export function usePullRequestDisplayGroups({
         entry.additions + entry.deletions > 0 || statsByRow.has(pullRequestDiffStatKey(entry)),
       involvement,
     );
-    return regroupPullRequests(sorted, groupBy, subGroupBy, now);
+    return regroupPullRequests(sorted, groupBy, now);
   })();
   const shownCount = displayGroups.reduce((count, group) => count + group.entries.length, 0);
   const hostActionsOf = pullRequestHostActions(hosts);

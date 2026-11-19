@@ -8,16 +8,15 @@ import {
   type PullRequestGroup,
 } from "./pullRequestList.logic";
 
-/** A row under a heading; `entries` of a group is all of its rows, in sub-group order. */
-export interface PullRequestSubgroup<Entry> {
-  readonly key: string;
-  readonly label: string;
-  readonly entries: ReadonlyArray<Entry>;
+/**
+ * A group, with the groups it is split into when the reader groups by more than one thing.
+ * `entries` is every row under it, in the order its children list them.
+ */
+export interface PullRequestGrouped<
+  Entry extends PullRequestListEntry,
+> extends PullRequestGroup<Entry> {
+  readonly children?: ReadonlyArray<PullRequestGrouped<Entry>>;
 }
-
-export type PullRequestGrouped<Entry extends PullRequestListEntry> = PullRequestGroup<Entry> & {
-  readonly subgroups?: ReadonlyArray<PullRequestSubgroup<Entry>>;
-};
 
 interface Bucket {
   readonly key: string;
@@ -160,36 +159,54 @@ function bucketPullRequests<Entry extends PullRequestListEntry>(
 }
 
 /**
- * Regroups `groups` for the reader's grouping. `involvement` keeps the groups it was given
- * (the Authored / Review requested / Others split) and any sub-grouping applies inside each;
- * every other grouping pools the rows first, so the list's sort decides the order within
- * a bucket.
+ * Regroups `groups` into the reader's levels, outermost first. A leading `involvement` keeps
+ * the groups it was given (the Authored / Review requested / Others split); every other
+ * first level pools the rows first, so the list's sort decides the order within a bucket.
+ * Each further level splits every group above it again, to any depth.
  */
 export function regroupPullRequests<Entry extends PullRequestListEntry>(
   groups: ReadonlyArray<PullRequestGroup<Entry>>,
-  groupBy: PullRequestGroupBy,
-  subGroupBy: PullRequestGroupBy,
+  levels: ReadonlyArray<PullRequestGroupBy>,
   now: number,
 ): ReadonlyArray<PullRequestGrouped<Entry>> {
-  const split = (group: PullRequestGroup<Entry>): PullRequestGrouped<Entry> => {
-    if (subGroupBy === "none" || subGroupBy === "involvement" || subGroupBy === groupBy) {
-      return group;
-    }
-    const subgroups = bucketPullRequests(group.entries, subGroupBy, now).map(
-      ({ bucket, entries }) => ({ key: bucket.key, label: bucket.label, entries }),
+  const split = (
+    group: PullRequestGroup<Entry>,
+    deeper: ReadonlyArray<PullRequestGroupBy>,
+  ): PullRequestGrouped<Entry> => {
+    const [by, ...rest] = deeper;
+    if (by === undefined || by === "involvement" || by === "none") return group;
+    const children = bucketPullRequests(group.entries, by, now).map(({ bucket, entries }) =>
+      split({ key: bucket.key, label: bucket.label, entries }, rest),
     );
-    return {
-      ...group,
-      entries: subgroups.flatMap((subgroup) => subgroup.entries),
-      subgroups,
-    };
+    return { ...group, entries: children.flatMap((child) => child.entries), children };
   };
-  if (groupBy === "involvement") return groups.map(split);
+  const [first = "involvement", ...deeper] = levels;
+  if (first === "involvement") return groups.map((group) => split(group, deeper));
   const pooled = groups.flatMap((group) => group.entries);
-  if (groupBy === "none") return [{ key: "others", label: "", entries: pooled }];
-  return bucketPullRequests(pooled, groupBy, now).map(({ bucket, entries }) =>
-    split({ key: bucket.key, label: bucket.label, entries }),
+  if (first === "none") return [{ key: "others", label: "", entries: pooled }];
+  return bucketPullRequests(pooled, first, now).map(({ bucket, entries }) =>
+    split({ key: bucket.key, label: bucket.label, entries }, deeper),
   );
+}
+
+/** The first `budget` rows of a group, with its children cut to match. */
+function prefixOfGroup<Entry extends PullRequestListEntry>(
+  group: PullRequestGrouped<Entry>,
+  budget: number,
+): PullRequestGrouped<Entry> | null {
+  const entries = group.entries.slice(0, budget);
+  if (entries.length === 0) return null;
+  if (group.children === undefined) return { ...group, entries };
+  let remaining = entries.length;
+  const children: PullRequestGrouped<Entry>[] = [];
+  for (const child of group.children) {
+    if (remaining <= 0) break;
+    const shown = prefixOfGroup(child, remaining);
+    if (shown === null) continue;
+    children.push(shown);
+    remaining -= shown.entries.length;
+  }
+  return { ...group, entries, children };
 }
 
 export function slicePullRequestGroups<Entry extends PullRequestListEntry>(
@@ -198,17 +215,9 @@ export function slicePullRequestGroups<Entry extends PullRequestListEntry>(
 ): ReadonlyArray<PullRequestGrouped<Entry>> {
   let left = limit;
   return groups.flatMap((group) => {
-    const entries = group.entries.slice(0, left);
-    left -= entries.length;
-    if (entries.length === 0) return [];
-    // Sub-groups hold the same rows in the same order, so the shown prefix covers whole
-    // sub-groups first and a part of the last one.
-    let remaining = entries.length;
-    const subgroups = group.subgroups?.flatMap((subgroup) => {
-      const shown = subgroup.entries.slice(0, remaining);
-      remaining -= shown.length;
-      return shown.length === 0 ? [] : [{ ...subgroup, entries: shown }];
-    });
-    return [{ ...group, entries, ...(subgroups === undefined ? {} : { subgroups }) }];
+    const shown = prefixOfGroup(group, left);
+    if (shown === null) return [];
+    left -= shown.entries.length;
+    return [shown];
   });
 }
